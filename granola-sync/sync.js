@@ -54,8 +54,17 @@ function findGDrivePath() {
   return fallback;
 }
 
+const INSTALL_DIR = path.join(HOME, '.lca-granola-sync');
 const SYNC_STATE_PATH = path.join(HOME, '.lca-granola-sync-state.json');
 const LOCK_PATH = path.join(HOME, '.lca-granola-sync.lock');
+
+// Read the syncer's name (set during install)
+function getSyncUser() {
+  const userFile = path.join(INSTALL_DIR, '.sync-user');
+  if (fs.existsSync(userFile)) return fs.readFileSync(userFile, 'utf8').trim();
+  return os.userInfo().username;
+}
+const SYNC_USER = getSyncUser();
 
 // Target Granola folder names (case-insensitive match)
 const TARGET_FOLDERS = ['loblaw', 'loblaws', 'loblaw digital', 'remedy'];
@@ -192,7 +201,8 @@ function toMarkdown(doc, transcript) {
     lines.push(`**Time:** ${t.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}`);
   }
 
-  lines.push(`**Source:** Granola (synced by ${os.userInfo().username})`);
+  lines.push(`**Recorded by:** ${SYNC_USER}`);
+  lines.push(`**Source:** Granola`);
   lines.push(`**Document ID:** ${doc.id}`);
 
   // Attendees
@@ -250,10 +260,11 @@ function toMarkdown(doc, transcript) {
 // ── Filename ────────────────────────────────────────────────
 function makeFilename(title, createdAt, existing) {
   const dateStr = createdAt.split('T')[0];
+  const user = SYNC_USER.toLowerCase().replace(/[^a-z]/g, '');
   let safe = (title || 'meeting').toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').slice(0, 80).replace(/-+$/, '') || 'meeting';
-  let name = `${dateStr}_${safe}.md`;
+  let name = `${dateStr}_${user}_${safe}.md`;
   let i = 1;
-  while (existing.includes(name)) { name = `${dateStr}_${safe}_${i++}.md`; }
+  while (existing.includes(name)) { name = `${dateStr}_${user}_${safe}_${i++}.md`; }
   return name;
 }
 

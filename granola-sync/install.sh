@@ -68,6 +68,16 @@ if [ ! -d "$SHARED_FOLDER" ]; then
 fi
 echo "  ✓ Shared folder found"
 
+# ── Ask for name ─────────────────────────────────
+echo ""
+echo "What's your first name? (used to tag your transcripts)"
+read -r SYNC_USER_NAME
+if [ -z "$SYNC_USER_NAME" ]; then
+  echo "❌ Name required."
+  exit 1
+fi
+echo "  ✓ Got it, $SYNC_USER_NAME"
+
 # ── Install ──────────────────────────────────────
 echo ""
 echo "Installing..."
@@ -77,6 +87,9 @@ mkdir -p "$LOG_DIR"
 
 # Download the sync script from GitHub
 curl -fsSL "$SCRIPT_URL" -o "$INSTALL_DIR/sync.js"
+
+# Save the user's name for the sync script
+echo "$SYNC_USER_NAME" > "$INSTALL_DIR/.sync-user"
 echo "  ✓ Sync script installed"
 
 # ── Create LaunchAgent ───────────────────────────
