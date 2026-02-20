@@ -23,35 +23,95 @@ const API_HOST = 'api.granola.ai';
 const REQUEST_DELAY = 200;
 
 // The shared Google Drive folder — Google Drive for Desktop syncs this
-// Each person's Google Drive mount path differs, so we detect it
+// Each person's Google Drive mount path differs, so we detect it.
+// The "loblaw digital" folder can appear in different locations depending
+// on how it was shared (parent folder shared, direct share, shared drive, etc).
 function findGDrivePath() {
   const cloudStorage = path.join(HOME, 'Library/CloudStorage');
+
+  // 1. Check if the installer saved a known path
+  const savedPath = path.join(HOME, '.lca-granola-sync', '.gdrive-path');
+  if (fs.existsSync(savedPath)) {
+    const saved = fs.readFileSync(savedPath, 'utf8').trim();
+    if (fs.existsSync(saved)) {
+      const transcripts = path.join(saved, 'transcripts');
+      if (!fs.existsSync(transcripts)) fs.mkdirSync(transcripts, { recursive: true });
+      return transcripts;
+    }
+  }
+
+  // 2. Auto-detect by searching known locations
   if (!fs.existsSync(cloudStorage)) return null;
 
   const drives = fs.readdirSync(cloudStorage).filter(d => d.startsWith('GoogleDrive-'));
   if (drives.length === 0) return null;
 
-  // Check each drive for the shared folder
+  // Candidate paths to check, in priority order
+  const candidatePaths = [];
   for (const drive of drives) {
-    const candidate = path.join(cloudStorage, drive, 'My Drive', 'client context', 'loblaw digital', 'transcripts');
-    if (fs.existsSync(path.dirname(candidate))) {
-      // Create transcripts subfolder if needed
-      if (!fs.existsSync(candidate)) fs.mkdirSync(candidate, { recursive: true });
-      return candidate;
+    const base = path.join(cloudStorage, drive);
+
+    // My Drive/client context/loblaw digital (parent folder shared)
+    candidatePaths.push(path.join(base, 'My Drive', 'client context', 'loblaw digital'));
+
+    // Shared drives — check each shared drive
+    const sharedDrivesDir = path.join(base, 'Shared drives');
+    if (fs.existsSync(sharedDrivesDir)) {
+      try {
+        for (const sd of fs.readdirSync(sharedDrivesDir)) {
+          candidatePaths.push(path.join(sharedDrivesDir, sd, 'client context', 'loblaw digital'));
+          candidatePaths.push(path.join(sharedDrivesDir, sd, 'loblaw digital'));
+        }
+      } catch {}
     }
-    // Also check Shared drives
-    const sharedCandidate = path.join(cloudStorage, drive, 'Shared drives', 'client context', 'loblaw digital', 'transcripts');
-    if (fs.existsSync(path.dirname(sharedCandidate))) {
-      if (!fs.existsSync(sharedCandidate)) fs.mkdirSync(sharedCandidate, { recursive: true });
-      return sharedCandidate;
+
+    // My Drive/loblaw digital (folder shared directly at root)
+    candidatePaths.push(path.join(base, 'My Drive', 'loblaw digital'));
+  }
+
+  for (const candidate of candidatePaths) {
+    if (fs.existsSync(candidate)) {
+      const transcripts = path.join(candidate, 'transcripts');
+      if (!fs.existsSync(transcripts)) fs.mkdirSync(transcripts, { recursive: true });
+      return transcripts;
     }
   }
 
-  // If the exact folder doesn't exist yet, create it in the first drive
-  const firstDrive = drives[0];
-  const fallback = path.join(cloudStorage, firstDrive, 'My Drive', 'client context', 'loblaw digital', 'transcripts');
-  fs.mkdirSync(fallback, { recursive: true });
-  return fallback;
+  // 3. Recursive search as last resort (max depth ~4)
+  for (const drive of drives) {
+    const myDrive = path.join(cloudStorage, drive, 'My Drive');
+    if (!fs.existsSync(myDrive)) continue;
+
+    const found = findDirRecursive(myDrive, 'loblaw digital', 4);
+    if (found) {
+      const transcripts = path.join(found, 'transcripts');
+      if (!fs.existsSync(transcripts)) fs.mkdirSync(transcripts, { recursive: true });
+      return transcripts;
+    }
+  }
+
+  return null;
+}
+
+// Helper: recursively search for a directory by name (case-insensitive)
+function findDirRecursive(dir, targetName, maxDepth, currentDepth = 0) {
+  if (currentDepth >= maxDepth) return null;
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.toLowerCase() === targetName.toLowerCase()) {
+        return path.join(dir, entry.name);
+      }
+    }
+    // Recurse into subdirectories
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const result = findDirRecursive(path.join(dir, entry.name), targetName, maxDepth, currentDepth + 1);
+      if (result) return result;
+    }
+  } catch {}
+  return null;
 }
 
 const INSTALL_DIR = path.join(HOME, '.lca-granola-sync');
@@ -275,7 +335,7 @@ async function main() {
   // Find Google Drive path
   const outputDir = findGDrivePath();
   if (!outputDir) {
-    logError('Google Drive not found. Install Google Drive for Desktop and make sure the "client context/loblaw digital" folder is accessible.');
+    logError('Google Drive not found. Install Google Drive for Desktop and make sure the "loblaw digital" folder is accessible in your Drive.');
     process.exit(1);
   }
   log(`Output: ${outputDir}`);
